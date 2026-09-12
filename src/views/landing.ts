@@ -1482,18 +1482,18 @@ export function renderLandingPage(props: LandingPageProps): string {
             <!-- Active Card Widget -->
             <div class="widget-box">
               <div class="widget-header">
-                <span class="widget-title">Vendor Sentinel</span>
-                <span style="font-size: 0.72rem; color: var(--text-dim);">Shield 🔒</span>
+                <span class="widget-title">Vendor API Shield</span>
+                <span style="font-size: 0.72rem; color: #10b981; font-weight: 700;">● Active 🛡️</span>
               </div>
 
               <div class="styled-card">
                 <div style="display: flex; justify-content: space-between; align-items: center;">
-                  <span style="font-family: var(--font-mono); font-size: 0.86rem; letter-spacing: 0.05em;">**** 2719</span>
-                  <span style="font-weight: 800; font-size: 0.88rem; letter-spacing: 0.06em;">STRIPE API</span>
+                  <span style="font-family: var(--font-mono); font-size: 0.86rem; letter-spacing: 0.05em; font-weight: 800;">STRIPE NODE SDK</span>
+                  <span style="font-weight: 800; font-size: 0.74rem; letter-spacing: 0.05em; background: rgba(0,0,0,0.25); padding: 2px 7px; border-radius: 4px;">v14 → v17+</span>
                 </div>
                 <div style="display: flex; justify-content: space-between; align-items: flex-end;">
                   <div>
-                    <div style="font-size: 0.7rem; opacity: 0.85;">Sentinel State</div>
+                    <div style="font-size: 0.7rem; opacity: 0.85;">Protection State</div>
                     <div style="font-size: 1rem; font-weight: 800;">100% Shielded</div>
                   </div>
                   <a href="/dashboard" class="btn-ghost" style="background: rgba(0,0,0,0.25); color: #fff; font-size: 0.76rem; padding: 6px 14px;">

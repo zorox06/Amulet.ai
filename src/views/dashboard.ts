@@ -1970,33 +1970,33 @@ export function renderDashboardPage(props: DashboardPageProps): string {
           </div>
         </div>
 
-        <!-- Active Cards Widget -->
+        <!-- Active Vendor API Coverage Widget -->
         <div class="widget-box">
           <div class="widget-header">
-            <span class="widget-title">Active Payment Shield</span>
-            <span style="font-size: 0.74rem; color: var(--text-dim); font-weight: 600;">Lock Card 🔒</span>
+            <span class="widget-title">Active Vendor Shield</span>
+            <span style="font-size: 0.74rem; color: #10b981; font-weight: 700;">● Real-Time Sentinel 🛡️</span>
           </div>
 
           <div class="styled-card">
-            <div class="styled-card-watermark">№</div>
+            <div class="styled-card-watermark" style="font-size: 5rem; right: -10px; bottom: -25px; font-family: var(--font-mono); opacity: 0.08;">SDK</div>
             <div style="display: flex; justify-content: space-between; align-items: center; position: relative; z-index: 2;">
-              <span style="font-family: var(--font-mono); font-size: 1.05rem; letter-spacing: 0.1em; font-weight: 700;">**** 2719</span>
-              <span style="font-weight: 900; font-size: 1.1rem; letter-spacing: 0.08em; font-style: italic;">VISA</span>
+              <span style="font-family: var(--font-mono); font-size: 0.95rem; letter-spacing: 0.05em; font-weight: 800;">STRIPE NODE SDK</span>
+              <span style="font-weight: 800; font-size: 0.76rem; letter-spacing: 0.05em; background: rgba(0,0,0,0.25); padding: 3px 8px; border-radius: 6px;">v14 → v17+</span>
             </div>
             <div style="display: flex; justify-content: space-between; align-items: flex-end; position: relative; z-index: 2;">
               <div>
-                <div style="font-size: 0.7rem; opacity: 0.85; text-transform: uppercase; letter-spacing: 0.05em;">Payment Gateway</div>
-                <div style="font-size: 1.05rem; font-weight: 800;">${isClean ? '100% Shielded' : 'Sentinel Armed'}</div>
+                <div style="font-size: 0.7rem; opacity: 0.85; text-transform: uppercase; letter-spacing: 0.05em;">Protection Coverage</div>
+                <div style="font-size: 1.05rem; font-weight: 800;">${isClean ? '100% Shielded' : `${filteredMatches.length} Breaking Deprecations`}</div>
               </div>
-              <button onclick="triggerScan()" class="btn" style="background: #171513; color: #fff; font-size: 0.76rem; padding: 6px 14px;">
-                Send Funds
+              <button onclick="triggerScan()" class="btn" style="background: #171513; color: #fff; font-size: 0.76rem; padding: 6px 14px; border: none; font-weight: 700; cursor: pointer;">
+                Deep AST Scan ⚡
               </button>
             </div>
           </div>
           <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px; font-size: 0.74rem; color: var(--text-dim);">
-            <span>Minimum Payment <strong>$25.00</strong></span>
-            <span>Payment Due <strong>Oct 13</strong></span>
-            <span style="color: var(--coral-primary); cursor: pointer; font-weight: 700;" onclick="triggerScan()">Edit details ✎</span>
+            <span>Cutoff Target <strong>2024-11-20 API</strong></span>
+            <span>AST Engine <strong>Tree-Sitter</strong></span>
+            <span style="color: var(--coral-primary); cursor: pointer; font-weight: 700;" onclick="triggerScan()">Rescan SDK ↻</span>
           </div>
         </div>
       </div>
