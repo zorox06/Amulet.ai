@@ -33,6 +33,7 @@ const prService = new GitHubPrService(githubApp);
 const repoIndexer = new RepoIndexer();
 const coreLoop = new CoreLoop();
 const reviewSessions = new Map<string, any>();
+let runtimeGithubToken = process.env.GITHUB_TOKEN || '';
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -390,11 +391,31 @@ app.post('/api/run-matching', async (_req: Request, res: Response) => {
   }
 });
 
-// API: Fetch repositories from GitHub
+// API: Fetch repositories from GitHub (Supports both public & private repositories via PAT, OAuth, or GitHub App)
 app.get('/api/github/repos', async (req: Request, res: Response) => {
   try {
-    const username = (req.query.username as string || '').trim();
-    const token = (req.query.token as string || '').trim();
+    const auth = getSafeAuth(req);
+    const userId = auth?.userId || null;
+
+    let token = ((req.query.token as string) || (req.headers['x-github-token'] as string) || '').trim();
+    if (!token && runtimeGithubToken) {
+      token = runtimeGithubToken.trim();
+    }
+    if (!token && process.env.GITHUB_TOKEN) {
+      token = process.env.GITHUB_TOKEN.trim();
+    }
+    if (!token && userId) {
+      try {
+        const clerkRes = await clerkClient.users.getUserOauthAccessToken(userId, 'oauth_github');
+        if (clerkRes?.data && clerkRes.data.length > 0 && clerkRes.data[0].token) {
+          token = clerkRes.data[0].token;
+        }
+      } catch (clerkErr) {
+        // Clerk OAuth token lookup skipped/unlinked
+      }
+    }
+
+    const username = ((req.query.username as string) || '').trim();
 
     if (!username && !token) {
       return res.status(400).json({ error: 'GitHub username or token is required' });
@@ -408,49 +429,117 @@ app.get('/api/github/repos', async (req: Request, res: Response) => {
       headers['Authorization'] = `Bearer ${token}`;
     }
 
-    let url = '';
-    if (token && !username) {
-      url = 'https://api.github.com/user/repos?sort=updated&per_page=100&affiliation=owner,collaborator,organization_member';
-    } else {
-      url = `https://api.github.com/users/${encodeURIComponent(username)}/repos?sort=updated&per_page=100`;
-    }
+    const reposMap = new Map<string, any>();
 
-    let ghRes = await fetch(url, { headers });
+    const addRepos = (items: any[]) => {
+      if (!Array.isArray(items)) return;
+      for (const r of items) {
+        if (!r || !r.full_name) continue;
+        const key = r.full_name.toLowerCase();
+        if (!reposMap.has(key)) {
+          reposMap.set(key, {
+            id: r.id,
+            name: r.name,
+            fullName: r.full_name,
+            description: r.description || '',
+            stars: r.stargazers_count || 0,
+            language: r.language || 'Other',
+            isPrivate: Boolean(r.private),
+            defaultBranch: r.default_branch || 'main',
+            updatedAt: r.updated_at,
+          });
+        }
+      }
+    };
 
-    // Fallback: Check if it's an organization if /users/ returned 404
-    if (ghRes.status === 404 && username) {
-      const orgUrl = `https://api.github.com/orgs/${encodeURIComponent(username)}/repos?sort=updated&per_page=100`;
-      const orgRes = await fetch(orgUrl, { headers });
-      if (orgRes.ok) {
-        ghRes = orgRes;
+    // 1. If authenticated token exists, fetch user's accessible repos (INCLUDES PRIVATE REPOSITORIES)
+    if (token) {
+      try {
+        const userReposUrl = 'https://api.github.com/user/repos?visibility=all&affiliation=owner,collaborator,organization_member&sort=updated&per_page=100';
+        const userRes = await fetch(userReposUrl, { headers });
+        if (userRes.ok) {
+          const userReposData: any = await userRes.json();
+          addRepos(userReposData);
+        }
+      } catch (userFetchErr) {
+        console.warn('Error fetching /user/repos with token:', userFetchErr);
       }
     }
 
-    if (!ghRes.ok) {
-      const errorData: any = await ghRes.json().catch(() => ({}));
-      return res.status(ghRes.status).json({
-        error: errorData.message || `GitHub returned error HTTP ${ghRes.status}`
-      });
+    // 2. If GitHub App installation exists, fetch repositories accessible to the installation
+    if (githubApp.isConfigured()) {
+      try {
+        const installationId = await githubApp.getLatestInstallation(userId);
+        if (installationId) {
+          const octokit = await githubApp.getInstallationOctokit(installationId);
+          const appRes = await octokit.apps.listReposAccessibleToInstallation({ per_page: 100 });
+          if (appRes?.data?.repositories) {
+            addRepos(appRes.data.repositories);
+          }
+        }
+      } catch (appErr) {
+        console.warn('GitHub App repo listing skipped:', appErr);
+      }
     }
 
-    const reposData: any = await ghRes.json();
-    if (!Array.isArray(reposData)) {
-      return res.json({ success: true, count: 0, repos: [] });
+    // 3. If username is specified:
+    if (username) {
+      // Check org repos (returns private repos of the org if token has org access)
+      try {
+        const orgUrl = `https://api.github.com/orgs/${encodeURIComponent(username)}/repos?type=all&sort=updated&per_page=100`;
+        const orgRes = await fetch(orgUrl, { headers });
+        if (orgRes.ok) {
+          const orgData: any = await orgRes.json();
+          addRepos(orgData);
+        }
+      } catch (orgErr) {
+        // Not an org or error
+      }
+
+      // Query public user repos
+      try {
+        const publicUrl = `https://api.github.com/users/${encodeURIComponent(username)}/repos?sort=updated&per_page=100`;
+        const publicRes = await fetch(publicUrl, { headers });
+        if (publicRes.ok) {
+          const publicData: any = await publicRes.json();
+          addRepos(publicData);
+        }
+      } catch (pubErr) {
+        // Error fetching public user repos
+      }
     }
 
-    const mapped = reposData.map((r: any) => ({
-      id: r.id,
-      name: r.name,
-      fullName: r.full_name,
-      description: r.description || '',
-      stars: r.stargazers_count || 0,
-      language: r.language || 'Other',
-      isPrivate: Boolean(r.private),
-      defaultBranch: r.default_branch || 'main',
-      updatedAt: r.updated_at,
-    }));
+    let allRepos = Array.from(reposMap.values());
 
-    res.json({ success: true, count: mapped.length, repos: mapped });
+    // If username is provided, filter or prioritize repos belonging to that user/org
+    if (username) {
+      const unameLower = username.toLowerCase();
+      const filtered = allRepos.filter(
+        (r) =>
+          r.fullName.toLowerCase().startsWith(unameLower + '/') ||
+          r.fullName.toLowerCase() === unameLower
+      );
+      if (filtered.length > 0) {
+        allRepos = filtered;
+      }
+    }
+
+    // Sort: most recently updated first
+    allRepos.sort((a, b) => {
+      const dateA = new Date(a.updatedAt || 0).getTime();
+      const dateB = new Date(b.updatedAt || 0).getTime();
+      return dateB - dateA;
+    });
+
+    const privateCount = allRepos.filter((r) => r.isPrivate).length;
+
+    res.json({
+      success: true,
+      count: allRepos.length,
+      privateCount,
+      repos: allRepos,
+      hasToken: Boolean(token),
+    });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'Failed to fetch GitHub repositories' });
   }
@@ -464,6 +553,18 @@ app.post('/api/repos/connect', async (req: Request, res: Response) => {
 
     const auth = getSafeAuth(req);
     const userId = auth?.userId || null;
+
+    let token = ((req.body.token as string) || '').trim();
+    if (!token && runtimeGithubToken) token = runtimeGithubToken;
+    if (!token && process.env.GITHUB_TOKEN) token = process.env.GITHUB_TOKEN;
+    if (!token && userId) {
+      try {
+        const clerkRes = await clerkClient.users.getUserOauthAccessToken(userId, 'oauth_github');
+        if (clerkRes?.data && clerkRes.data.length > 0 && clerkRes.data[0].token) {
+          token = clerkRes.data[0].token;
+        }
+      } catch (clerkErr) {}
+    }
 
     await db.initializeSchema();
     const id = repoName.toLowerCase().replace(/[^a-z0-9_.-]/g, '-');
@@ -481,7 +582,7 @@ app.post('/api/repos/connect', async (req: Request, res: Response) => {
     if (parts.length === 2) {
       const [owner, repo] = parts;
       try {
-        await githubApp.indexRemoteRepositoryViaAPI(installationId, owner, repo, '', id);
+        await githubApp.indexRemoteRepositoryViaAPI(installationId, owner, repo, '', id, token);
         await matchingEngine.correlateAll();
       } catch (scanErr: any) {
         console.warn(`Could not index remote GitHub repository ${repoName}:`, scanErr?.message || scanErr);
@@ -548,9 +649,12 @@ app.post('/api/matches/:id/pr', async (req: Request, res: Response) => {
     const auth = getSafeAuth(req);
     const installationId = Number(row.github_installation_id) || (await githubApp.getLatestInstallation(auth?.userId || null)) || undefined;
 
-    if (!installationId || !githubApp.isConfigured()) {
+    const hasApp = Boolean(installationId && githubApp.isConfigured());
+    const hasToken = Boolean(runtimeGithubToken || process.env.GITHUB_TOKEN);
+
+    if (!hasApp && !hasToken) {
       return res.status(400).json({
-        error: `Live GitHub App installation is required to open pull requests on ${targetRepo}. Please install the GitHub App first.`
+        error: `Live GitHub App installation or GitHub Personal Access Token is required to open pull requests on ${targetRepo}. Please provide credentials in Settings.`
       });
     }
 
@@ -587,11 +691,12 @@ app.post('/api/matches/:id/pr', async (req: Request, res: Response) => {
       branch: branchName,
       title: prTitle,
       body: `Automated migration generated by Amulet.ai.\n\n${proposedFix.rationale || ''}\n\nAffected Symbol: ${row.affected_symbol}\nSource: ${row.source_url}`,
+      token: runtimeGithubToken || process.env.GITHUB_TOKEN || undefined,
     });
 
     if (!prResult.live) {
       return res.status(400).json({
-        error: 'Unable to open live PR on GitHub. Ensure the repository exists and the GitHub App has write permissions.'
+        error: 'Unable to open live PR on GitHub. Ensure the repository exists and the GitHub App or Token has write permissions.'
       });
     }
 
@@ -639,22 +744,28 @@ app.get('/api/account', async (req: Request, res: Response) => {
     authenticated: Boolean(userId),
     userId,
     hasGeminiKey: Boolean(process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.trim().length > 0),
+    hasGithubToken: Boolean((process.env.GITHUB_TOKEN && process.env.GITHUB_TOKEN.trim().length > 0) || runtimeGithubToken),
     hasGithubApp: githubApp.isConfigured(),
     hasWebhookSecret: Boolean(process.env.GITHUB_WEBHOOK_SECRET),
   });
 });
 
-// API: Save the runtime Gemini key. GitHub is authorized through the App install flow.
+// API: Save runtime Gemini key and GitHub Token
 app.post('/api/settings/keys', async (req: Request, res: Response) => {
   try {
-    const { geminiApiKey } = req.body;
+    const { geminiApiKey, githubToken } = req.body;
     if (typeof geminiApiKey === 'string') {
       process.env.GEMINI_API_KEY = geminiApiKey.trim();
       geminiService.reloadClient();
     }
+    if (typeof githubToken === 'string') {
+      runtimeGithubToken = githubToken.trim();
+      process.env.GITHUB_TOKEN = githubToken.trim();
+    }
     res.json({
       success: true,
       hasGeminiKey: Boolean(process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.trim().length > 0),
+      hasGithubToken: Boolean((process.env.GITHUB_TOKEN && process.env.GITHUB_TOKEN.trim().length > 0) || runtimeGithubToken),
       hasGithubApp: githubApp.isConfigured(),
       message: 'Integration settings updated successfully',
     });

@@ -177,13 +177,15 @@ export class GitHubAppService {
     owner: string,
     repo: string,
     dirPath = '',
-    targetRepoId?: string
+    targetRepoId?: string,
+    customToken?: string
   ): Promise<number> {
     await db.initializeSchema();
     const { Octokit } = await loadOctokitModules();
+    const token = customToken || process.env.GITHUB_TOKEN || undefined;
     const octokit = (installationId && this.isConfigured())
       ? await this.getInstallationOctokit(installationId)
-      : new Octokit({ auth: process.env.GITHUB_TOKEN || undefined });
+      : new Octokit({ auth: token });
 
     const actualRepoId = targetRepoId || `${owner}/${repo}`;
     await db.query(
@@ -211,7 +213,8 @@ export class GitHubAppService {
                 owner,
                 repo,
                 item.path,
-                actualRepoId
+                actualRepoId,
+                token
               );
             }
           } else if (item.type === 'file' && (item.name.endsWith('.ts') || item.name.endsWith('.tsx') || item.name.endsWith('.js') || item.name.endsWith('.jsx'))) {

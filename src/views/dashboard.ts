@@ -2155,6 +2155,32 @@ export function renderDashboardPage(props: DashboardPageProps): string {
             <span class="preset-chip" onclick="quickFillUsername('octocat')">🐙 octocat</span>
             <span id="clerk-gh-chip" class="preset-chip" style="display: none;" onclick="quickFillClerkUsername()">👤 My GitHub</span>
           </div>
+
+          <!-- Private Repositories Access Bar -->
+          <div style="margin-top: 10px; padding: 10px 14px; background: var(--bg-surface-subtle); border: 1px solid var(--border-subtle); border-radius: 12px;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <button type="button" onclick="togglePatField()" style="background: transparent; border: none; cursor: pointer; color: var(--text-main); font-size: 0.78rem; font-weight: 700; display: flex; align-items: center; gap: 6px; padding: 0;">
+                <span>🔒</span>
+                <span>Include Private Repositories (GitHub Token)</span>
+                <span id="pat-caret" style="font-size: 0.68rem; color: var(--text-dim); transition: transform 0.2s;">▼</span>
+              </button>
+              <span id="pat-active-badge" style="display: none; font-size: 0.72rem; color: #10b981; font-weight: 700; background: rgba(16, 185, 129, 0.12); padding: 2px 8px; border-radius: 6px;">
+                ✓ Token active
+              </span>
+            </div>
+            <div id="pat-input-container" style="display: none; margin-top: 10px;">
+              <div style="display: flex; gap: 8px;">
+                <input id="modal-gh-token-input" type="password" placeholder="ghp_... (Personal Access Token with 'repo' scope)" style="flex: 1; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--border-subtle); background: var(--card-inner); color: var(--text-main); font-family: var(--font-mono); font-size: 0.82rem; outline: none;" onkeydown="if(event.key==='Enter'){event.preventDefault();saveAndRefetchWithPat();}">
+                <button type="button" onclick="saveAndRefetchWithPat()" class="btn btn-secondary" style="font-size: 0.78rem; padding: 8px 14px; font-weight: 700; white-space: nowrap;">
+                  Save & Fetch
+                </button>
+              </div>
+              <div style="margin-top: 6px; font-size: 0.71rem; color: var(--text-dim); display: flex; justify-content: space-between; align-items: center;">
+                <span>Requires classic token with <code>repo</code> scope or fine-grained token with repository read permissions.</span>
+                <a href="https://github.com/settings/tokens/new?scopes=repo&description=Amulet.ai" target="_blank" style="color: var(--coral-primary); text-decoration: underline; font-weight: 600;">Generate token ↗</a>
+              </div>
+            </div>
+          </div>
         </div>
 
         <!-- Animated Drawdown Drawer with Repository Cards -->
@@ -2696,6 +2722,20 @@ export function renderDashboardPage(props: DashboardPageProps): string {
             geminiStatus.innerHTML = '⚙️ AST Fallback Active';
           }
         }
+
+        const ghTokenInput = document.getElementById('github-token-input');
+        const storedPat = localStorage.getItem('amulet_github_pat') || '';
+        if (ghTokenInput && !ghTokenInput.value && storedPat) {
+          ghTokenInput.value = storedPat;
+        }
+        if (data.hasGithubToken || storedPat) {
+          const msg = document.getElementById('github-token-msg');
+          if (msg && !msg.textContent) {
+            msg.style.display = 'block';
+            msg.style.color = '#10b981';
+            msg.textContent = '✓ Active credentials configured for private repositories.';
+          }
+        }
       } catch (e) {
         console.warn('Account status fetch error:', e);
       }
@@ -2786,6 +2826,9 @@ export function renderDashboardPage(props: DashboardPageProps): string {
       const input = document.getElementById('github-token-input');
       const msg = document.getElementById('github-token-msg');
       const token = input ? input.value.trim() : '';
+      if (token) {
+        localStorage.setItem('amulet_github_pat', token);
+      }
       try {
         const res = await fetch('/api/settings/keys', {
           method: 'POST',
@@ -2796,9 +2839,9 @@ export function renderDashboardPage(props: DashboardPageProps): string {
         if (msg) {
           msg.style.display = 'block';
           msg.style.color = '#10b981';
-          msg.textContent = '✓ GitHub token saved to runtime session.';
+          msg.textContent = '✓ GitHub token saved. Private repositories unlocked!';
         }
-        showToast('✓ GitHub credentials updated.');
+        showToast('✓ GitHub credentials updated. Private repos unlocked!');
       } catch (e) {
         showToast('Error saving token: ' + e.message);
       }
@@ -2853,10 +2896,59 @@ export function renderDashboardPage(props: DashboardPageProps): string {
     function openConnectRepoModal() {
       const modal = document.getElementById('connect-modal');
       modal.style.display = 'flex';
+      initPatFieldState();
       const input = document.getElementById('gh-username-input');
       if (input) {
         input.focus();
       }
+    }
+
+    function initPatFieldState() {
+      const stored = localStorage.getItem('amulet_github_pat') || '';
+      const input = document.getElementById('modal-gh-token-input');
+      const badge = document.getElementById('pat-active-badge');
+      if (input && stored) {
+        input.value = stored;
+      }
+      if (stored && badge) {
+        badge.style.display = 'inline-block';
+      }
+    }
+
+    function togglePatField() {
+      const container = document.getElementById('pat-input-container');
+      const caret = document.getElementById('pat-caret');
+      if (!container) return;
+      const isOpen = container.style.display === 'block';
+      container.style.display = isOpen ? 'none' : 'block';
+      if (caret) caret.style.transform = isOpen ? 'rotate(0deg)' : 'rotate(180deg)';
+      if (!isOpen) {
+        const input = document.getElementById('modal-gh-token-input');
+        if (input) input.focus();
+      }
+    }
+
+    async function saveAndRefetchWithPat() {
+      const input = document.getElementById('modal-gh-token-input');
+      const token = input ? input.value.trim() : '';
+      if (!token) {
+        showToast('Please enter a GitHub Personal Access Token');
+        return;
+      }
+      localStorage.setItem('amulet_github_pat', token);
+      const badge = document.getElementById('pat-active-badge');
+      if (badge) badge.style.display = 'inline-block';
+      showToast('✓ Token saved locally.');
+      try {
+        await fetch('/api/settings/keys', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ githubToken: token })
+        });
+      } catch (e) {
+        console.warn('Backend token sync notice:', e);
+      }
+      handleSmartSearchAction();
     }
 
     function closeConnectModal() {
@@ -2906,6 +2998,9 @@ export function renderDashboardPage(props: DashboardPageProps): string {
         return;
       }
 
+      const modalTokenInput = document.getElementById('modal-gh-token-input');
+      const token = (modalTokenInput && modalTokenInput.value.trim()) || localStorage.getItem('amulet_github_pat') || '';
+
       if (notice) notice.style.display = 'none';
 
       if (btn) {
@@ -2915,7 +3010,11 @@ export function renderDashboardPage(props: DashboardPageProps): string {
       showToast('Fetching repositories for @' + username + ' from GitHub...');
 
       try {
-        const res = await fetch('/api/github/repos?username=' + encodeURIComponent(username));
+        let fetchUrl = '/api/github/repos?username=' + encodeURIComponent(username);
+        if (token) {
+          fetchUrl += '&token=' + encodeURIComponent(token);
+        }
+        const res = await fetch(fetchUrl);
         const data = await res.json();
         if (!res.ok || !data.success) {
           throw new Error(data.error || 'Failed to fetch repositories from GitHub');
@@ -2924,9 +3023,17 @@ export function renderDashboardPage(props: DashboardPageProps): string {
         fetchedReposCache = data.repos || [];
         renderDrawdownRepos(fetchedReposCache);
 
-        if (countEl) countEl.textContent = fetchedReposCache.length;
+        const privCount = fetchedReposCache.filter(r => r.isPrivate).length;
+        if (countEl) {
+          countEl.textContent = fetchedReposCache.length + (privCount > 0 ? (' (' + privCount + ' Private)') : '');
+        }
         if (drawer) drawer.classList.add('open');
-        showToast('✓ Loaded ' + fetchedReposCache.length + ' repositories from @' + username);
+
+        if (privCount > 0) {
+          showToast('✓ Loaded ' + fetchedReposCache.length + ' repositories (' + privCount + ' private) for @' + username);
+        } else {
+          showToast('✓ Loaded ' + fetchedReposCache.length + ' repositories for @' + username);
+        }
       } catch (err) {
         console.warn('GitHub fetch error:', err);
         if (notice && noticeText) {
@@ -2987,7 +3094,9 @@ export function renderDashboardPage(props: DashboardPageProps): string {
         var safeLang = escapeHtml(r.language || 'Other');
         var starsHtml = r.stars > 0 ? ('<span style="font-size: 0.72rem; color: var(--text-dim); display: flex; align-items: center; gap: 3px;">⭐ ' + r.stars + '</span>') : '';
         var selectedBadge = isSelected ? '<span style="color: var(--coral-primary); font-size: 0.74rem; font-weight: 800; background: var(--card-inner); padding: 1px 7px; border-radius: 9999px;">✓ Selected</span>' : '';
-        var privBadge = '<span style="font-size: 0.68rem; padding: 2px 6px; border-radius: 4px; background: var(--bg-surface-subtle); color: var(--text-dim); border: 1px solid var(--border-subtle);">' + (r.isPrivate ? 'Private' : 'Public') + '</span>';
+        var privBadge = r.isPrivate
+          ? '<span style="font-size: 0.68rem; font-weight: 800; padding: 2px 8px; border-radius: 6px; background: rgba(239, 68, 68, 0.14); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.3); display: inline-flex; align-items: center; gap: 4px;">🔒 Private</span>'
+          : '<span style="font-size: 0.68rem; padding: 2px 7px; border-radius: 6px; background: var(--bg-surface-subtle); color: var(--text-dim); border: 1px solid var(--border-subtle);">Public</span>';
 
         return '<div class="repo-choice-item ' + (isSelected ? 'selected' : '') + '" onclick="selectDrawdownRepo(\\'' + safeFullName + '\\', \\'' + safeBranch + '\\')">' +
           '<div style="flex: 1; min-width: 0; padding-right: 12px;">' +
@@ -3042,7 +3151,10 @@ export function renderDashboardPage(props: DashboardPageProps): string {
       );
       renderDrawdownRepos(filtered);
       const countEl = document.getElementById('drawdown-count');
-      if (countEl) countEl.textContent = filtered.length;
+      const privCount = filtered.filter(r => r.isPrivate).length;
+      if (countEl) {
+        countEl.textContent = filtered.length + (privCount > 0 ? (' (' + privCount + ' Private)') : '');
+      }
     }
 
     function quickFillUsername(name) {
@@ -3062,6 +3174,8 @@ export function renderDashboardPage(props: DashboardPageProps): string {
     async function submitConnectRepo() {
       const customInput = document.getElementById('custom-repo-input');
       const ghSearchInput = document.getElementById('gh-username-input');
+      const modalTokenInput = document.getElementById('modal-gh-token-input');
+      const token = (modalTokenInput && modalTokenInput.value.trim()) || localStorage.getItem('amulet_github_pat') || '';
 
       let repoName = customInput ? customInput.value.trim() : '';
       if (!repoName && ghSearchInput) {
@@ -3085,7 +3199,7 @@ export function renderDashboardPage(props: DashboardPageProps): string {
         const res = await fetch('/api/repos/connect', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ repoName })
+          body: JSON.stringify({ repoName, token })
         });
         const data = await res.json();
         if (data.success) {

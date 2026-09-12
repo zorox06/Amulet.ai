@@ -1,15 +1,24 @@
-import { GitHubAppService } from './app.js';
+import { GitHubAppService, loadOctokitModules } from './app.js';
 
 export interface PullRequestResult { url: string; number: number; branch: string; live: boolean; }
 
 export class GitHubPrService {
   constructor(private readonly githubApp = new GitHubAppService()) {}
 
-  async openPullRequest(args: { installationId?: number; repo: string; base: string; filePath: string; oldText: string; newText: string; branch: string; title: string; body: string }): Promise<PullRequestResult> {
-    if (!args.installationId || !this.githubApp.isConfigured()) return { url: `preview://github/${args.branch}`, number: 0, branch: args.branch, live: false };
+  async openPullRequest(args: { installationId?: number; repo: string; base: string; filePath: string; oldText: string; newText: string; branch: string; title: string; body: string; token?: string }): Promise<PullRequestResult> {
+    const { Octokit } = await loadOctokitModules();
+    let octokit: any = null;
+
+    if (args.installationId && this.githubApp.isConfigured()) {
+      octokit = await this.githubApp.getInstallationOctokit(args.installationId);
+    } else if (args.token || process.env.GITHUB_TOKEN) {
+      octokit = new Octokit({ auth: args.token || process.env.GITHUB_TOKEN });
+    } else {
+      return { url: `preview://github/${args.branch}`, number: 0, branch: args.branch, live: false };
+    }
+
     const [owner, repo] = args.repo.split('/');
     if (!owner || !repo) throw new Error('GITHUB_REPO must be in owner/repository format');
-    const octokit = await this.githubApp.getInstallationOctokit(args.installationId);
     const ref = await octokit.rest.git.getRef({ owner, repo, ref: `heads/${args.base}` });
     await octokit.rest.git.createRef({ owner, repo, ref: `refs/heads/${args.branch}`, sha: ref.data.object.sha });
     const current = await octokit.rest.repos.getContent({ owner, repo, path: args.filePath, ref: args.base });
