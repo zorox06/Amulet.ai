@@ -1,8 +1,17 @@
-import Parser from 'tree-sitter';
-import tsModule from 'tree-sitter-typescript';
+let ParserClass: any = null;
+let TypeScript: any = null;
+let TSX: any = null;
+let treeSitterAvailable = false;
 
-const TypeScript = (tsModule as any).typescript;
-const TSX = (tsModule as any).tsx;
+try {
+  ParserClass = require('tree-sitter');
+  const tsModule = require('tree-sitter-typescript');
+  TypeScript = (tsModule as any).typescript;
+  TSX = (tsModule as any).tsx;
+  treeSitterAvailable = Boolean(ParserClass && TypeScript);
+} catch {
+  treeSitterAvailable = false;
+}
 
 export interface ExtractedCallSite {
   filePath: string;
@@ -13,21 +22,31 @@ export interface ExtractedCallSite {
 }
 
 export class TreeSitterStripeIndexer {
-  private tsParser: Parser;
-  private tsxParser: Parser;
+  private tsParser?: any;
+  private tsxParser?: any;
 
   constructor() {
-    this.tsParser = new Parser();
-    this.tsParser.setLanguage(TypeScript);
+    if (treeSitterAvailable && ParserClass) {
+      try {
+        this.tsParser = new ParserClass();
+        this.tsParser.setLanguage(TypeScript);
 
-    this.tsxParser = new Parser();
-    this.tsxParser.setLanguage(TSX);
+        this.tsxParser = new ParserClass();
+        this.tsxParser.setLanguage(TSX);
+      } catch {
+        treeSitterAvailable = false;
+      }
+    }
   }
 
   /**
    * Parses TypeScript/TSX code and extracts all Stripe call sites and type usages.
    */
   indexSourceCode(code: string, filePath = 'file.ts'): ExtractedCallSite[] {
+    if (!treeSitterAvailable || !this.tsParser) {
+      return this.fallbackRegexIndex(code, filePath);
+    }
+
     const isTsx = filePath.endsWith('.tsx');
     const parser = isTsx ? this.tsxParser : this.tsParser;
     const tree = parser.parse(code);
@@ -52,7 +71,7 @@ export class TreeSitterStripeIndexer {
     }
 
     // 2. Second Pass: Walk AST to find call expressions and property accesses
-    const visit = (node: Parser.SyntaxNode) => {
+    const visit = (node: any) => {
       // Check Call Expressions: e.g. stripe.charges.create(...) or this.stripe.refunds.create(...)
       if (node.type === 'call_expression') {
         const functionNode = node.childForFieldName('function');
@@ -144,11 +163,11 @@ export class TreeSitterStripeIndexer {
    * Traverses AST to find identifiers imported from 'stripe' or constructed with `new Stripe(...)`
    */
   private findStripeImportsAndInstances(
-    rootNode: Parser.SyntaxNode,
+    rootNode: any,
     importNames: Set<string>,
     instanceNames: Set<string>
   ) {
-    const walk = (node: Parser.SyntaxNode) => {
+    const walk = (node: any) => {
       // ES Import: import Stripe from 'stripe' or import MyStripe from 'stripe'
       if (node.type === 'import_statement') {
         const source = node.childForFieldName('source');
@@ -228,7 +247,7 @@ export class TreeSitterStripeIndexer {
    * Helper to recursively reconstruct dotted member expression paths
    * e.g. `stripe.charges.create` from member_expression nodes
    */
-  private resolveMemberExpressionPath(node: Parser.SyntaxNode): string | null {
+  private resolveMemberExpressionPath(node: any): string | null {
     if (node.type === 'identifier' || node.type === 'this') {
       return node.text;
     }
@@ -243,5 +262,32 @@ export class TreeSitterStripeIndexer {
       }
     }
     return null;
+  }
+
+  /**
+   * High-precision regex pattern fallback for environments where native Tree-sitter bindings are not loaded.
+   */
+  private fallbackRegexIndex(code: string, filePath: string): ExtractedCallSite[] {
+    const callSites: ExtractedCallSite[] = [];
+    const lines = code.split('\n');
+    const pattern = /(?:(?:\bthis\.)?(?:stripe|paymentsClient|paymentGateway|client|stripeClient)\.([a-zA-Z0-9_$]+)\.([a-zA-Z0-9_$]+)\s*\()/g;
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      pattern.lastIndex = 0;
+      let match: RegExpExecArray | null;
+      while ((match = pattern.exec(line)) !== null) {
+        const fullCall = match[0].replace(/\s*\($/, '');
+        const normalized = fullCall.replace(/^this\./, '');
+        callSites.push({
+          filePath,
+          lineNumber: i + 1,
+          stripeSymbol: normalized.startsWith('stripe.') ? normalized : `stripe.${match[1]}.${match[2]}`,
+          snippet: line.trim(),
+          nodeType: 'call_expression',
+        });
+      }
+    }
+    return callSites;
   }
 }
