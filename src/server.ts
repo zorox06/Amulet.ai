@@ -50,12 +50,7 @@ app.post('/api/demo/run', async (req: Request, res: Response) => {
     }
 
     if (!repoDir) {
-      const fallbackDir = path.join(process.cwd(), 'repos', 'stripe-demo');
-      if (fs.existsSync(fallbackDir)) {
-        repoDir = fallbackDir;
-      } else {
-        return res.status(400).json({ error: 'No repository provided. Please connect a GitHub repository first.' });
-      }
+      return res.status(400).json({ error: 'No repository provided. Please connect a GitHub repository first.' });
     }
 
     try {
@@ -103,8 +98,6 @@ app.post('/api/review/start', async (req: Request, res: Response) => {
     if (targetRepo && installationId && githubApp.isConfigured()) {
       repoDir = await githubApp.cloneRepository(installationId, targetRepo);
       tempDir = true;
-    } else if (fs.existsSync(path.resolve(process.cwd(), 'repos', 'stripe-demo'))) {
-      repoDir = path.resolve(process.cwd(), 'repos', 'stripe-demo');
     } else {
       return res.status(400).json({
         error: 'No connected repository found. Please connect your GitHub repository on the dashboard to run a live scan.',
