@@ -69,7 +69,7 @@ class UniversalDatabase implements DatabaseClient {
         const statements = [
           `CREATE TABLE IF NOT EXISTS repos (
             id TEXT PRIMARY KEY,
-            github_installation_id BIGINT NOT NULL,
+            github_installation_id BIGINT DEFAULT 0,
             repo_full_name TEXT NOT NULL,
             user_id TEXT,
             last_indexed_at TIMESTAMPTZ,
@@ -126,6 +126,8 @@ class UniversalDatabase implements DatabaseClient {
           `CREATE INDEX IF NOT EXISTS idx_changelog_symbol ON changelog_entries(affected_symbol)`,
           `CREATE INDEX IF NOT EXISTS idx_matches_status ON matches(status)`,
           `ALTER TABLE repos ADD COLUMN IF NOT EXISTS user_id TEXT`,
+          `ALTER TABLE repos ALTER COLUMN github_installation_id DROP NOT NULL`,
+          `ALTER TABLE repos ALTER COLUMN github_installation_id SET DEFAULT 0`,
         ];
 
         for (const stmt of statements) {

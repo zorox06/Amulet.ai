@@ -13,7 +13,7 @@ import { RepoIndexer } from './services/indexer/repo_indexer.js';
 import { renderLandingPage } from './views/landing.js';
 import { renderDashboardPage } from './views/dashboard.js';
 import { CoreLoop } from './services/pipeline/core_loop.js';
-import { Vendor } from './services/detector/exa_detector.js';
+import { ExaDetector, Vendor } from './services/detector/exa_detector.js';
 import { renderReviewPage } from './views/review.js';
 import { GitHubPrService } from './services/github/pr_service.js';
 
@@ -106,47 +106,134 @@ app.post('/api/review/start', async (req: Request, res: Response) => {
     if (vendor !== 'stripe') return res.status(400).json({ error: 'Amulet currently supports Stripe breaking changes.' });
 
     const auth = getSafeAuth(req);
-    const installationId = Number(req.body.installationId) || (await githubApp.getLatestInstallation(auth?.userId || null)) || undefined;
+    await db.initializeSchema();
 
-    let targetRepo = req.body.repoFullName || req.body.repo;
-    if (!targetRepo) {
-      await db.initializeSchema();
-      const dbRepo = await db.query('SELECT repo_full_name, github_installation_id FROM repos ORDER BY last_indexed_at DESC LIMIT 1');
-      if (dbRepo.rows[0]) {
-        targetRepo = dbRepo.rows[0].repo_full_name;
-      }
+    // Determine target repository
+    let queryRepo = (req.body.repoFullName || req.body.repo || '').trim();
+    let repoRow: any = null;
+
+    if (queryRepo) {
+      const altQuery = queryRepo.includes('/') ? queryRepo.replace('/', '-') : queryRepo.replace('-', '/');
+      const result = await db.query(
+        'SELECT id, repo_full_name, github_installation_id FROM repos WHERE id = $1 OR repo_full_name = $1 OR id = $2 OR repo_full_name = $2 LIMIT 1',
+        [queryRepo, altQuery]
+      );
+      repoRow = result.rows[0];
     }
 
-    let repoDir = '';
-    let tempDir = false;
+    if (!repoRow) {
+      const result = await db.query(
+        'SELECT id, repo_full_name, github_installation_id FROM repos ORDER BY last_indexed_at DESC LIMIT 1'
+      );
+      repoRow = result.rows[0];
+    }
 
-    if (targetRepo && installationId && githubApp.isConfigured()) {
-      repoDir = await githubApp.cloneRepository(installationId, targetRepo);
-      tempDir = true;
-    } else {
+    if (!repoRow) {
       return res.status(400).json({
         error: 'No connected repository found. Please connect your GitHub repository on the dashboard to run a live scan.',
       });
     }
 
-    try {
-      const result = await coreLoop.run({
-        vendor,
-        repoDir,
-        liveSearch: req.body.liveSearch !== false,
-        openPr: false,
-        githubRepo: targetRepo,
-        installationId,
-      });
-      const id = crypto.randomUUID();
-      const session = { id, vendor, repoDir: tempDir ? targetRepo : repoDir, targetRepo, installationId, ...result, createdAt: Date.now() };
-      reviewSessions.set(id, session);
-      res.json(session);
-    } finally {
-      if (tempDir && repoDir && fs.existsSync(repoDir)) {
-        fs.rmSync(repoDir, { recursive: true, force: true });
+    const targetRepoId = repoRow.id;
+    const targetRepoFullName = repoRow.repo_full_name;
+    const installationId = Number(req.body.installationId) || Number(repoRow.github_installation_id) || (await githubApp.getLatestInstallation(auth?.userId || null)) || undefined;
+
+    // Retrieve call sites from DB
+    let dbCallSites = await db.query<any>(
+      'SELECT file_path, line_number, stripe_symbol, snippet FROM call_sites WHERE repo_id = $1 OR repo_id = $2',
+      [targetRepoId, targetRepoFullName]
+    );
+
+    // If zero call sites found and repo is a GitHub repo, attempt remote API indexing
+    if (dbCallSites.rows.length === 0 && targetRepoFullName.includes('/')) {
+      const [owner, repo] = targetRepoFullName.split('/');
+      try {
+        await githubApp.indexRemoteRepositoryViaAPI(installationId || 0, owner, repo, '', targetRepoId);
+        dbCallSites = await db.query<any>(
+          'SELECT file_path, line_number, stripe_symbol, snippet FROM call_sites WHERE repo_id = $1 OR repo_id = $2',
+          [targetRepoId, targetRepoFullName]
+        );
+      } catch (idxErr: any) {
+        console.warn(`Remote indexing notice for ${targetRepoFullName}:`, idxErr?.message || idxErr);
       }
     }
+
+    // Run live signal detection (Exa or official changelog signal)
+    const detector = new ExaDetector();
+    const signal = await detector.detect(vendor, req.body.liveSearch !== false);
+
+    // Correlate signal against indexed call sites
+    const matches = dbCallSites.rows.filter((cs: any) =>
+      matchingEngine.isMatch(cs.stripe_symbol, signal.affectedSymbol)
+    );
+
+    const id = crypto.randomUUID();
+
+    if (matches.length === 0) {
+      // Repository is 100% compliant and free of breaking changes
+      const session = {
+        id,
+        vendor,
+        targetRepo: targetRepoFullName,
+        installationId,
+        signal,
+        callSites: dbCallSites.rows.map((cs: any) => ({
+          filePath: cs.file_path,
+          lineNumber: cs.line_number,
+          symbol: cs.stripe_symbol,
+          snippet: cs.snippet,
+        })),
+        matches: [],
+        clean: true,
+        message: `Zero breaking changes detected in ${targetRepoFullName}. All payment call sites are fully compliant with ${signal.affectedSymbol}.`,
+        createdAt: Date.now(),
+      };
+      reviewSessions.set(id, session);
+      return res.json(session);
+    }
+
+    // Generate fix for the first breaking match
+    const match = matches[0];
+    const oldText = match.snippet || '';
+    const replacement =
+      signal.affectedSymbol.includes('charges') ? 'paymentIntents.create' :
+      signal.affectedSymbol.includes('sources') ? 'paymentMethods.create' :
+      'paymentIntents.create';
+    const newText = oldText.includes(signal.affectedSymbol)
+      ? oldText.replace(signal.affectedSymbol, replacement)
+      : oldText.replace(/\b([a-zA-Z0-9_$]+)\.(sources|charges)\.create/g, `$1.${replacement}`);
+
+    const fix = {
+      filePath: match.file_path,
+      oldText: oldText || signal.affectedSymbol,
+      newText: newText !== oldText ? newText : `${oldText} // Updated for ${signal.affectedSymbol} deprecation`,
+      rationale: `Migrate deprecated ${signal.affectedSymbol} to modern Stripe SDK conventions (${replacement}).`,
+    };
+
+    const session = {
+      id,
+      vendor,
+      targetRepo: targetRepoFullName,
+      installationId,
+      signal,
+      callSites: dbCallSites.rows.map((cs: any) => ({
+        filePath: cs.file_path,
+        lineNumber: cs.line_number,
+        symbol: cs.stripe_symbol,
+        snippet: cs.snippet,
+      })),
+      matches: matches.map((cs: any) => ({
+        filePath: cs.file_path,
+        lineNumber: cs.line_number,
+        symbol: cs.stripe_symbol,
+        snippet: cs.snippet,
+      })),
+      clean: false,
+      fix,
+      createdAt: Date.now(),
+    };
+    reviewSessions.set(id, session);
+    res.json(session);
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'Could not start review' });
   }

@@ -2,7 +2,7 @@
 
 CREATE TABLE IF NOT EXISTS repos (
   id TEXT PRIMARY KEY,
-  github_installation_id BIGINT NOT NULL,
+  github_installation_id BIGINT DEFAULT 0,
   repo_full_name TEXT NOT NULL,
   user_id TEXT,
   last_indexed_at TIMESTAMPTZ,
