@@ -1,4 +1,3 @@
-import { Octokit } from '@octokit/rest';
 import { GitHubAppService } from './app.js';
 
 export interface PullRequestResult { url: string; number: number; branch: string; live: boolean; }
@@ -10,7 +9,7 @@ export class GitHubPrService {
     if (!args.installationId || !this.githubApp.isConfigured()) return { url: `preview://github/${args.branch}`, number: 0, branch: args.branch, live: false };
     const [owner, repo] = args.repo.split('/');
     if (!owner || !repo) throw new Error('GITHUB_REPO must be in owner/repository format');
-    const octokit = this.githubApp.getInstallationOctokit(args.installationId);
+    const octokit = await this.githubApp.getInstallationOctokit(args.installationId);
     const ref = await octokit.rest.git.getRef({ owner, repo, ref: `heads/${args.base}` });
     await octokit.rest.git.createRef({ owner, repo, ref: `refs/heads/${args.branch}`, sha: ref.data.object.sha });
     const current = await octokit.rest.repos.getContent({ owner, repo, path: args.filePath, ref: args.base });

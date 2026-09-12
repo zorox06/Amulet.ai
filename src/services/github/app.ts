@@ -1,5 +1,4 @@
-import { createAppAuth } from '@octokit/auth-app';
-import { Octokit } from '@octokit/rest';
+import type { Octokit as OctokitType } from '@octokit/rest';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -18,6 +17,25 @@ export interface GitHubAppConfig {
 
 const execFileAsync = promisify(execFile);
 
+// Dynamic module loader for pure ESM @octokit packages to prevent ERR_REQUIRE_ESM in CommonJS
+let octokitRestModule: any = null;
+let octokitAuthAppModule: any = null;
+
+export async function loadOctokitModules() {
+  if (!octokitRestModule) {
+    octokitRestModule = await import('@octokit/rest');
+  }
+  if (!octokitAuthAppModule) {
+    octokitAuthAppModule = await import('@octokit/auth-app');
+  }
+  const OctokitClass = octokitRestModule.Octokit || octokitRestModule.default?.Octokit || octokitRestModule.default;
+  const createAppAuthFn = octokitAuthAppModule.createAppAuth || octokitAuthAppModule.default?.createAppAuth || octokitAuthAppModule.default;
+  return {
+    Octokit: OctokitClass,
+    createAppAuth: createAppAuthFn,
+  };
+}
+
 export class GitHubAppService {
   private config: GitHubAppConfig;
   private astIndexer: TreeSitterStripeIndexer;
@@ -34,7 +52,8 @@ export class GitHubAppService {
   /**
    * Returns an authenticated Octokit client scoped to a customer's specific installation
    */
-  getInstallationOctokit(installationId: number): Octokit {
+  async getInstallationOctokit(installationId: number): Promise<any> {
+    const { Octokit, createAppAuth } = await loadOctokitModules();
     return new Octokit({
       authStrategy: createAppAuth,
       auth: {
@@ -57,6 +76,7 @@ export class GitHubAppService {
   /** Obtains a fresh, short-lived installation token. The token is never persisted. */
   async getInstallationToken(installationId: number): Promise<string> {
     if (!this.isConfigured()) throw new Error('GitHub App is not configured');
+    const { createAppAuth } = await loadOctokitModules();
     const auth = createAppAuth({ appId: this.config.appId, privateKey: this.config.privateKey, installationId });
     const result = await auth({ type: 'installation' });
     return result.token;
@@ -160,8 +180,9 @@ export class GitHubAppService {
     targetRepoId?: string
   ): Promise<number> {
     await db.initializeSchema();
+    const { Octokit } = await loadOctokitModules();
     const octokit = (installationId && this.isConfigured())
-      ? this.getInstallationOctokit(installationId)
+      ? await this.getInstallationOctokit(installationId)
       : new Octokit({ auth: process.env.GITHUB_TOKEN || undefined });
 
     const actualRepoId = targetRepoId || `${owner}/${repo}`;
