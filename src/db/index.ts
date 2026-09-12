@@ -75,20 +75,6 @@ class UniversalDatabase implements DatabaseClient {
           for (const stmt of statements) {
             await this.query(stmt);
           }
-
-          // Seed default demo repo if repos is empty so dashboard displays out-of-the-box
-          try {
-            const check = await this.query('SELECT count(*) as count FROM repos');
-            if (parseInt(check.rows[0]?.count || '0', 10) === 0) {
-              await this.query(`
-                INSERT INTO repos (id, github_installation_id, repo_full_name, last_indexed_at)
-                VALUES ('stripe-demo', 10000001, 'enterprise/stripe-demo', NOW())
-                ON CONFLICT (id) DO NOTHING
-              `);
-            }
-          } catch {
-            // Non-critical seeding fallback
-          }
         }
         this.initialized = true;
       })();

@@ -156,55 +156,76 @@ export class GitHubAppService {
     installationId: number,
     owner: string,
     repo: string,
-    dirPath = ''
+    dirPath = '',
+    targetRepoId?: string
   ): Promise<number> {
-    const octokit = this.getInstallationOctokit(installationId);
+    await db.initializeSchema();
+    const octokit = (installationId && this.isConfigured())
+      ? this.getInstallationOctokit(installationId)
+      : new Octokit({ auth: process.env.GITHUB_TOKEN || undefined });
+
+    const actualRepoId = targetRepoId || `${owner}/${repo}`;
+    await db.query(
+      `INSERT INTO repos (id, github_installation_id, repo_full_name, last_indexed_at)
+       VALUES ($1, $2, $3, NOW())
+       ON CONFLICT (id) DO UPDATE SET last_indexed_at = NOW()`,
+      [actualRepoId, installationId || 0, `${owner}/${repo}`]
+    );
+
     let indexedSitesCount = 0;
 
-    const { data: contents } = await octokit.rest.repos.getContent({
-      owner,
-      repo,
-      path: dirPath,
-    });
+    try {
+      const { data: contents } = await octokit.rest.repos.getContent({
+        owner,
+        repo,
+        path: dirPath,
+      });
 
-    if (Array.isArray(contents)) {
-      for (const item of contents) {
-        if (item.type === 'dir') {
-          if (!['node_modules', 'dist', '.git', '.next'].includes(item.name)) {
-            indexedSitesCount += await this.indexRemoteRepositoryViaAPI(
-              installationId,
-              owner,
-              repo,
-              item.path
-            );
-          }
-        } else if (item.type === 'file' && (item.name.endsWith('.ts') || item.name.endsWith('.tsx'))) {
-          // Fetch raw file content
-          const { data: fileData } = await octokit.rest.repos.getContent({
-            owner,
-            repo,
-            path: item.path,
-          });
+      if (Array.isArray(contents)) {
+        for (const item of contents) {
+          if (item.type === 'dir') {
+            if (!['node_modules', 'dist', '.git', '.next', 'build', 'out'].includes(item.name)) {
+              indexedSitesCount += await this.indexRemoteRepositoryViaAPI(
+                installationId,
+                owner,
+                repo,
+                item.path,
+                actualRepoId
+              );
+            }
+          } else if (item.type === 'file' && (item.name.endsWith('.ts') || item.name.endsWith('.tsx') || item.name.endsWith('.js') || item.name.endsWith('.jsx'))) {
+            try {
+              const { data: fileData } = await octokit.rest.repos.getContent({
+                owner,
+                repo,
+                path: item.path,
+              });
 
-          if ('content' in fileData && fileData.encoding === 'base64') {
-            const rawContent = Buffer.from(fileData.content, 'base64').toString('utf8');
-            const callSites = this.astIndexer.indexSourceCode(rawContent, item.path);
+              if ('content' in fileData && fileData.encoding === 'base64') {
+                const rawContent = Buffer.from(fileData.content, 'base64').toString('utf8');
+                const callSites = this.astIndexer.indexSourceCode(rawContent, item.path);
 
-            if (callSites.length > 0) {
-              const records = callSites.map((cs) => ({
-                id: crypto.randomUUID(),
-                repo_id: `${owner}/${repo}`,
-                file_path: cs.filePath,
-                line_number: cs.lineNumber,
-                stripe_symbol: cs.stripeSymbol,
-                snippet: cs.snippet,
-              }));
-              await dataStore.saveCallSites(records);
-              indexedSitesCount += records.length;
+                if (callSites.length > 0) {
+                  const records = callSites.map((cs) => ({
+                    id: crypto.randomUUID(),
+                    repo_id: actualRepoId,
+                    file_path: cs.filePath,
+                    line_number: cs.lineNumber,
+                    stripe_symbol: cs.stripeSymbol,
+                    snippet: cs.snippet,
+                  }));
+                  await dataStore.saveCallSites(records);
+                  indexedSitesCount += records.length;
+                }
+              }
+            } catch (fileErr) {
+              console.warn(`Could not index remote file ${item.path}:`, fileErr);
             }
           }
         }
       }
+    } catch (apiErr: any) {
+      console.warn(`GitHub Contents API error for ${owner}/${repo}/${dirPath}:`, apiErr?.message || apiErr);
     }
 
     return indexedSitesCount;

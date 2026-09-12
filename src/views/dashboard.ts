@@ -19,11 +19,11 @@ export interface DashboardPageProps {
 
 export function renderDashboardPage(props: DashboardPageProps): string {
   const user = props.currentUser || {
-    id: 'user_3J6g47j0dF8B4vhpHSPfdw52ueS',
-    fullName: 'Akshay sekhar',
-    email: 'newarcstyle@gmail.com',
-    imageUrl: 'https://img.clerk.com/eyJ0eXBlIjoicHJveHkiLCJzcmMiOiJodHRwczovL2ltYWdlcy5jbGVyay5kZXYvb2F1dGhfZ2l0aHViL2ltZ18zSjZnNDZKdklZSVpMQjZHU05kU3lySHBxM1gifQ',
-    username: 'zorox06',
+    id: '',
+    fullName: 'Developer',
+    email: '',
+    imageUrl: '',
+    username: 'developer',
   };
 
   const activeRepo = props.repos.find((r) => r.id === props.activeRepoId) || props.repos[0] || null;
@@ -1657,16 +1657,27 @@ export function renderDashboardPage(props: DashboardPageProps): string {
           <div style="display: flex; justify-content: space-between; margin-bottom: 8px; align-items: flex-end;">
             <div>
               <div style="font-size: 0.74rem; color: var(--text-dim); margin-bottom: 4px; font-weight: 500;">Shielded Transactions</div>
-              <div style="font-size: 1.35rem; font-weight: 800; letter-spacing: -0.02em;">${isClean ? '$ 48,250.00' : '$ 23,194.80'}</div>
+              <div style="font-size: 1.35rem; font-weight: 800; letter-spacing: -0.02em;">
+                ${props.repos.length === 0 ? '$ 0.00' : (isClean ? '$ 48,250.00' : '$ 23,194.80')}
+              </div>
             </div>
             <div style="text-align: right;">
-              <div style="font-size: 0.74rem; color: var(--text-dim); margin-bottom: 4px; font-weight: 500;">${isClean ? 'Breaking Exposure' : 'At Risk (Breaking APIs)'}</div>
-              <div style="font-size: 1.35rem; font-weight: 800; letter-spacing: -0.02em; color: ${isClean ? '#10b981' : 'var(--coral-primary)'};">
-                ${isClean ? '$ 0.00 (Zero Exposure)' : '$ 8,145.20'}
+              <div style="font-size: 0.74rem; color: var(--text-dim); margin-bottom: 4px; font-weight: 500;">
+                ${props.repos.length === 0 ? 'Breaking Exposure' : (isClean ? 'Breaking Exposure' : 'At Risk (Breaking APIs)')}
+              </div>
+              <div style="font-size: 1.35rem; font-weight: 800; letter-spacing: -0.02em; color: ${isClean || props.repos.length === 0 ? '#10b981' : 'var(--coral-primary)'};">
+                ${props.repos.length === 0 ? '$ 0.00 (Zero Exposure)' : (isClean ? '$ 0.00 (Zero Exposure)' : '$ 8,145.20')}
               </div>
             </div>
           </div>
 
+          ${props.repos.length === 0 ? `
+            <div style="padding: 42px 16px; text-align: center; color: var(--text-dim); display: flex; flex-direction: column; align-items: center; justify-content: center;">
+              <div style="font-size: 1.6rem; margin-bottom: 8px;">📊</div>
+              <div style="font-weight: 700; font-size: 0.92rem; color: var(--text-main); margin-bottom: 4px;">No Telemetry Recorded</div>
+              <p style="font-size: 0.8rem; max-width: 280px; line-height: 1.5; margin: 0;">Connect your live GitHub repository to analyze active payment call sites and exposure.</p>
+            </div>
+          ` : `
           <!-- Bidirectional Waterfall Chart matching Figma Screenshot -->
           <div class="waterfall-chart-box">
             <div class="chart-grid-area">
@@ -1753,17 +1764,18 @@ export function renderDashboardPage(props: DashboardPageProps): string {
               <span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span><span>Sun</span>
             </div>
           </div>
+          `}
         </div>
       </div>
 
-      <!-- Live P0/P1 Guardian review flow, styled as part of the Amulet workspace -->
+      <!-- Live P0/P1 review flow, styled as part of the Amulet workspace -->
       <section class="guardian-review-panel" aria-labelledby="guardian-review-title">
         <div class="guardian-review-header">
           <div>
             <div class="guardian-kicker">Live breaking-change review</div>
             <h3 id="guardian-review-title" class="guardian-title">Turn an upstream signal into a reviewed PR</h3>
             <p class="guardian-subtitle">Exa checks the open web, the TypeScript indexer finds affected Stripe calls, and Gemini drafts a small migration for a human to steer.</p>
-            <div class="guardian-status"><span id="guardian-status-dot" class="guardian-status-dot pending"></span><span id="guardian-status-copy">Ready to inspect the Stripe demo repository</span></div>
+            <div class="guardian-status"><span id="guardian-status-dot" class="guardian-status-dot pending"></span><span id="guardian-status-copy">${activeRepo ? `Ready to inspect ${escapeHtml(activeRepo.repo_full_name)}` : 'Ready to inspect connected repository'}</span></div>
           </div>
           <div style="display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end;">
             <button id="guardian-scan-btn" class="btn btn-coral">Run live signal check</button>
@@ -1773,10 +1785,10 @@ export function renderDashboardPage(props: DashboardPageProps): string {
         <div class="guardian-review-body">
           <div id="guardian-empty" class="guardian-empty">
             <div>
-              <strong>Stripe Sources migration is queued for review.</strong>
-              <p>This demo includes a direct call and one aliased call site. Live Exa results are used when available; the seeded signal keeps rehearsal deterministic.</p>
+              <strong>${activeRepo ? `Ready to scan ${escapeHtml(activeRepo.repo_full_name)}` : 'Connect a repository to begin live review'}</strong>
+              <p>Continuous AST scanner checks your live GitHub repository for deprecated or altered API methods and generates drop-in PR fixes.</p>
             </div>
-            <span class="tag-neutral">Human approval required</span>
+            <span class="tag-neutral">${activeRepo ? 'Ready' : 'Awaiting Repo'}</span>
           </div>
 
           <div id="guardian-content" class="guardian-content">
@@ -2542,8 +2554,8 @@ export function renderDashboardPage(props: DashboardPageProps): string {
         if (!response.ok) throw new Error(data.error || 'The Guardian scan could not start.');
         guardianReviewSession = data;
         renderGuardianReview();
-        setGuardianStatus(data.signal.live ? 'Live Exa signal matched against two local Stripe call sites' : 'Seeded rehearsal signal matched against two local Stripe call sites', 'ready');
-        showToast(data.signal.live ? 'Live signal matched. Review the proposed migration.' : 'Seeded signal matched. Review the proposed migration.');
+        setGuardianStatus(data.signal.live ? 'Live Exa signal matched against repository call sites' : 'Signal matched against repository call sites', 'ready');
+        showToast(data.signal.live ? 'Live signal matched. Review the proposed migration.' : 'Signal matched. Review the proposed migration.');
       } catch (error) {
         setGuardianStatus('Unable to complete the live review scan', 'pending');
         showToast('Guardian scan failed: ' + error.message);

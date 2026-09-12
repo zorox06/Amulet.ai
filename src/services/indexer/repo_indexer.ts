@@ -88,7 +88,7 @@ export class RepoIndexer {
     // Ensure repository record exists in repos table to satisfy foreign key constraint
     await db.query(
       `INSERT INTO repos (id, github_installation_id, repo_full_name, last_indexed_at)
-       VALUES ($1, 10000001, $2, NOW())
+       VALUES ($1, 0, $2, NOW())
        ON CONFLICT (id) DO UPDATE SET last_indexed_at = NOW()`,
       [repoId, repoId]
     );

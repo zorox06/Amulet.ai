@@ -15,12 +15,14 @@ import { renderDashboardPage } from './views/dashboard.js';
 import { CoreLoop } from './services/pipeline/core_loop.js';
 import { Vendor } from './services/detector/exa_detector.js';
 import { renderReviewPage } from './views/review.js';
+import { GitHubPrService } from './services/github/pr_service.js';
 
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 const githubApp = new GitHubAppService();
+const prService = new GitHubPrService(githubApp);
 const repoIndexer = new RepoIndexer();
 const coreLoop = new CoreLoop();
 const reviewSessions = new Map<string, any>();
@@ -33,29 +35,100 @@ app.use(clerkMiddleware());
 app.post('/api/demo/run', async (req: Request, res: Response) => {
   try {
     const vendor = (req.body.vendor || 'stripe') as Vendor;
-    if (vendor !== 'stripe') return res.status(400).json({ error: 'The current hackathon demo supports Stripe only.' });
-    const repoDir = path.resolve(req.body.repoDir || path.join(process.cwd(), 'repos', 'stripe-demo'));
-    const installationId = Number(req.body.installationId) || undefined;
-    const result = await coreLoop.run({ vendor, repoDir, liveSearch: req.body.liveSearch !== false, openPr: req.body.openPr === true && process.env.OPEN_PR === 'true', githubRepo: req.body.githubRepo, installationId, base: req.body.base });
-    res.json({ success: true, ...result });
+    if (vendor !== 'stripe') return res.status(400).json({ error: 'Amulet currently supports Stripe breaking changes.' });
+
+    const auth = getAuth(req);
+    const installationId = Number(req.body.installationId) || (await githubApp.getLatestInstallation(auth?.userId || null)) || undefined;
+    const githubRepo = req.body.githubRepo || process.env.GITHUB_REPO;
+
+    let repoDir = req.body.repoDir;
+    let tempDir = false;
+
+    if (!repoDir && githubRepo && installationId && githubApp.isConfigured()) {
+      repoDir = await githubApp.cloneRepository(installationId, githubRepo);
+      tempDir = true;
+    }
+
+    if (!repoDir) {
+      const fallbackDir = path.join(process.cwd(), 'repos', 'stripe-demo');
+      if (fs.existsSync(fallbackDir)) {
+        repoDir = fallbackDir;
+      } else {
+        return res.status(400).json({ error: 'No repository provided. Please connect a GitHub repository first.' });
+      }
+    }
+
+    try {
+      const result = await coreLoop.run({
+        vendor,
+        repoDir,
+        liveSearch: req.body.liveSearch !== false,
+        openPr: req.body.openPr === true && process.env.OPEN_PR === 'true',
+        githubRepo,
+        installationId,
+        base: req.body.base,
+      });
+      res.json({ success: true, ...result });
+    } finally {
+      if (tempDir && repoDir && fs.existsSync(repoDir)) {
+        fs.rmSync(repoDir, { recursive: true, force: true });
+      }
+    }
   } catch (err: any) {
-    res.status(500).json({ error: err.message || 'Demo pipeline failed' });
+    res.status(500).json({ error: err.message || 'Pipeline run failed' });
   }
 });
 
-// P1 review flow. Sessions are deliberately in-memory for the hackathon demo.
+// P1 review flow. Sessions are in-memory for active reviews.
 app.post('/api/review/start', async (req: Request, res: Response) => {
   try {
     const vendor = (req.body.vendor || 'stripe') as Vendor;
-    if (vendor !== 'stripe') return res.status(400).json({ error: 'The current hackathon demo supports Stripe only.' });
-    const repoDir = path.resolve(process.cwd(), 'repos', 'stripe-demo');
-    const result = await coreLoop.run({ vendor, repoDir, liveSearch: req.body.liveSearch !== false, openPr: false });
-    const id = crypto.randomUUID();
+    if (vendor !== 'stripe') return res.status(400).json({ error: 'Amulet currently supports Stripe breaking changes.' });
+
     const auth = getAuth(req);
-    const installationId = Number(req.body.installationId) || await githubApp.getLatestInstallation(auth?.userId || null) || undefined;
-    const session = { id, vendor, repoDir, installationId, ...result, createdAt: Date.now() };
-    reviewSessions.set(id, session);
-    res.json(session);
+    const installationId = Number(req.body.installationId) || (await githubApp.getLatestInstallation(auth?.userId || null)) || undefined;
+
+    let targetRepo = req.body.repoFullName || req.body.repo;
+    if (!targetRepo) {
+      await db.initializeSchema();
+      const dbRepo = await db.query('SELECT repo_full_name, github_installation_id FROM repos ORDER BY last_indexed_at DESC LIMIT 1');
+      if (dbRepo.rows[0]) {
+        targetRepo = dbRepo.rows[0].repo_full_name;
+      }
+    }
+
+    let repoDir = '';
+    let tempDir = false;
+
+    if (targetRepo && installationId && githubApp.isConfigured()) {
+      repoDir = await githubApp.cloneRepository(installationId, targetRepo);
+      tempDir = true;
+    } else if (fs.existsSync(path.resolve(process.cwd(), 'repos', 'stripe-demo'))) {
+      repoDir = path.resolve(process.cwd(), 'repos', 'stripe-demo');
+    } else {
+      return res.status(400).json({
+        error: 'No connected repository found. Please connect your GitHub repository on the dashboard to run a live scan.',
+      });
+    }
+
+    try {
+      const result = await coreLoop.run({
+        vendor,
+        repoDir,
+        liveSearch: req.body.liveSearch !== false,
+        openPr: false,
+        githubRepo: targetRepo,
+        installationId,
+      });
+      const id = crypto.randomUUID();
+      const session = { id, vendor, repoDir: tempDir ? targetRepo : repoDir, targetRepo, installationId, ...result, createdAt: Date.now() };
+      reviewSessions.set(id, session);
+      res.json(session);
+    } finally {
+      if (tempDir && repoDir && fs.existsSync(repoDir)) {
+        fs.rmSync(repoDir, { recursive: true, force: true });
+      }
+    }
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'Could not start review' });
   }
@@ -185,10 +258,10 @@ app.get('/api/dashboard-data', async (_req: Request, res: Response) => {
 
     res.json({
       metrics: {
-        totalBreaking: parseInt(breakingRes.rows[0]?.count || '235', 10),
-        removals: parseInt(removalsRes.rows[0]?.count || '142', 10),
-        signatures: parseInt(signaturesRes.rows[0]?.count || '68', 10),
-        totalCallSites: parseInt(callSitesRes.rows[0]?.count || '524', 10),
+        totalBreaking: parseInt(breakingRes.rows[0]?.count || '0', 10),
+        removals: parseInt(removalsRes.rows[0]?.count || '0', 10),
+        signatures: parseInt(signaturesRes.rows[0]?.count || '0', 10),
+        totalCallSites: parseInt(callSitesRes.rows[0]?.count || '0', 10),
         totalRepos: reposRes.rows.length,
         totalMatches: matches.length,
         precisionScore: 100.0,
@@ -288,48 +361,26 @@ app.post('/api/repos/connect', async (req: Request, res: Response) => {
     const userId = auth?.userId || null;
 
     await db.initializeSchema();
-    const id = repoName.toLowerCase().replace(/[^a-z0-9_-]/g, '-');
+    const id = repoName.toLowerCase().replace(/[^a-z0-9_.-]/g, '-');
+    const installationId = (await githubApp.getLatestInstallation(userId)) || 0;
+
     await db.query(
       `INSERT INTO repos (id, github_installation_id, repo_full_name, user_id, last_indexed_at)
-       VALUES ($1, 10000001, $2, $3, NOW())
+       VALUES ($1, $2, $3, $4, NOW())
        ON CONFLICT (id) DO UPDATE SET last_indexed_at = NOW(), user_id = COALESCE(EXCLUDED.user_id, repos.user_id)`,
-      [id, repoName, userId]
+      [id, installationId, repoName, userId]
     );
 
-    const repoDir = path.resolve(process.cwd(), 'repos', id);
-    if (!fs.existsSync(repoDir)) {
-      fs.mkdirSync(repoDir, { recursive: true });
-      const serviceCode = `import Stripe from 'stripe';
-
-export class PaymentGatewayService {
-  private stripe = new Stripe(process.env.STRIPE_API_KEY || '');
-
-  async createPaymentIntent(amount: number, currency: string) {
-    return await this.stripe.paymentIntents.create({
-      amount,
-      currency,
-      payment_method_types: ['card'],
-    });
-  }
-
-  async getCustomer(customerId: string) {
-    return await this.stripe.customers.retrieve(customerId);
-  }
-
-  async processRefund(chargeId: string, amount: number) {
-    return await this.stripe.refunds.create({
-      charge: chargeId,
-      amount,
-    });
-  }
-}
-`;
-      fs.writeFileSync(path.join(repoDir, 'payment_gateway.ts'), serviceCode, 'utf8');
-    }
-
-    if (fs.existsSync(repoDir)) {
-      await repoIndexer.indexRepositoryDirectory(id, repoDir);
-      await matchingEngine.correlateAll();
+    // Live indexing directly from GitHub via the Contents API
+    const parts = repoName.split('/');
+    if (parts.length === 2) {
+      const [owner, repo] = parts;
+      try {
+        await githubApp.indexRemoteRepositoryViaAPI(installationId, owner, repo, '', id);
+        await matchingEngine.correlateAll();
+      } catch (scanErr: any) {
+        console.warn(`Could not index remote GitHub repository ${repoName}:`, scanErr?.message || scanErr);
+      }
     }
 
     res.json({ success: true, repoId: id, repoName });
@@ -365,32 +416,100 @@ app.post('/api/matches/:id/fix', async (req: Request, res: Response) => {
   }
 });
 
-// API: Create Pull Request for a match
+// API: Create Pull Request for a match (Live GitHub PR)
 app.post('/api/matches/:id/pr', async (req: Request, res: Response) => {
   try {
     const matchId = req.params.id;
-    const branchName = req.body.branchName || `amulet/fix-stripe-migration-${Date.now().toString().slice(-4)}`;
-    const prTitle = req.body.prTitle || 'fix(stripe): automated migration to prevent API breakage';
+    const branchName = req.body.branchName || `amulet/migration-${Date.now().toString().slice(-4)}`;
+    const prTitle = req.body.prTitle || 'fix: automated migration to prevent API breakage';
+
+    const matchRes = await db.query(
+      `SELECT m.id, m.changelog_entry_id, m.call_site_id, cs.file_path, cs.line_number, cs.snippet, cs.stripe_symbol, cs.repo_id, r.repo_full_name, r.github_installation_id, ce.affected_symbol, ce.source_url, ce.raw_text, ce.change_type, f.generated_diff
+       FROM matches m
+       JOIN call_sites cs ON cs.id = m.call_site_id
+       JOIN repos r ON r.id = cs.repo_id
+       JOIN changelog_entries ce ON ce.id = m.changelog_entry_id
+       LEFT JOIN fixes f ON f.match_id = m.id
+       WHERE m.id = $1`,
+      [matchId]
+    );
+
+    if (matchRes.rows.length === 0) {
+      return res.status(404).json({ error: 'Match not found' });
+    }
+
+    const row = matchRes.rows[0];
+    const targetRepo = row.repo_full_name;
+    const auth = getAuth(req);
+    const installationId = Number(row.github_installation_id) || (await githubApp.getLatestInstallation(auth?.userId || null)) || undefined;
+
+    if (!installationId || !githubApp.isConfigured()) {
+      return res.status(400).json({
+        error: `Live GitHub App installation is required to open pull requests on ${targetRepo}. Please install the GitHub App first.`
+      });
+    }
+
+    const proposedFix = await fixGenerator.generateFixAsync({
+      matchId: row.id,
+      changelogEntryId: row.changelog_entry_id,
+      callSiteId: row.call_site_id,
+      repoName: row.repo_full_name,
+      filePath: row.file_path,
+      lineNumber: row.line_number,
+      stripeSymbol: row.stripe_symbol,
+      snippet: row.snippet,
+      changeType: row.change_type,
+      affectedSymbol: row.affected_symbol,
+      rawText: row.raw_text || '',
+      sourceUrl: row.source_url,
+      publishedAt: new Date(),
+      status: 'pending',
+    });
+
+    const diffLines = proposedFix.diff.split('\n');
+    const oldLines = diffLines.filter((l) => l.startsWith('-') && !l.startsWith('---')).map((l) => l.slice(1));
+    const newLines = diffLines.filter((l) => l.startsWith('+') && !l.startsWith('+++')).map((l) => l.slice(1));
+    const oldText = oldLines.join('\n') || row.snippet;
+    const newText = newLines.join('\n') || row.snippet;
+
+    const prResult = await prService.openPullRequest({
+      installationId,
+      repo: targetRepo,
+      base: process.env.GITHUB_BASE || 'main',
+      filePath: row.file_path,
+      oldText,
+      newText,
+      branch: branchName,
+      title: prTitle,
+      body: `Automated migration generated by Amulet.ai.\n\n${proposedFix.rationale || ''}\n\nAffected Symbol: ${row.affected_symbol}\nSource: ${row.source_url}`,
+    });
+
+    if (!prResult.live) {
+      return res.status(400).json({
+        error: 'Unable to open live PR on GitHub. Ensure the repository exists and the GitHub App has write permissions.'
+      });
+    }
 
     await db.query(
       `UPDATE matches SET status = 'pr_opened', updated_at = NOW() WHERE id = $1`,
       [matchId]
     );
 
-    const prNumber = Math.floor(100 + Math.random() * 899);
-    const prUrl = `https://github.com/enterprise/payment-gateway/pull/${prNumber}`;
+    const fixId = crypto.randomUUID();
     await db.query(
-      `UPDATE fixes SET pr_url = $1, pr_status = 'open', updated_at = NOW() WHERE match_id = $2`,
-      [prUrl, matchId]
+      `INSERT INTO fixes (id, match_id, generated_diff, pr_url, pr_status, updated_at)
+       VALUES ($1, $2, $3, $4, 'open', NOW())
+       ON CONFLICT (match_id) DO UPDATE SET pr_url = EXCLUDED.pr_url, pr_status = 'open', updated_at = NOW()`,
+      [fixId, matchId, proposedFix.diff, prResult.url]
     );
 
     res.json({
       success: true,
-      prUrl,
-      prNumber,
-      branchName,
+      prUrl: prResult.url,
+      prNumber: prResult.number,
+      branchName: prResult.branch,
       prTitle,
-      message: `Pull Request #${prNumber} opened on branch ${branchName}`,
+      message: `Pull Request #${prResult.number} opened on branch ${prResult.branch}`,
     });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -484,9 +603,9 @@ app.get('/', async (req: Request, res: Response) => {
 
   const publishableKey = process.env.CLERK_PUBLISHABLE_KEY || '';
 
-  let totalBreakingCount = 235;
-  let totalCallSitesCount = 524;
-  let totalReposCount = 3;
+  let totalBreakingCount = 0;
+  let totalCallSitesCount = 0;
+  let totalReposCount = 0;
 
   try {
     await db.initializeSchema();
@@ -532,7 +651,7 @@ app.get('/dashboard', async (req: Request, res: Response) => {
     username: string;
   } | null = null;
 
-  const targetUserId = auth?.userId || (req.query.preview === 'true' ? 'user_3J6g47j0dF8B4vhpHSPfdw52ueS' : null);
+  const targetUserId = auth?.userId || null;
 
   if (targetUserId) {
     try {
@@ -540,10 +659,10 @@ app.get('/dashboard', async (req: Request, res: Response) => {
       const ghAcc = u.externalAccounts?.find((a: any) => a.provider === 'oauth_github' || a.provider === 'github');
       currentUser = {
         id: u.id,
-        fullName: u.fullName || `${u.firstName || ''} ${u.lastName || ''}`.trim() || 'Akshay sekhar',
-        email: u.primaryEmailAddress?.emailAddress || u.emailAddresses?.[0]?.emailAddress || 'newarcstyle@gmail.com',
+        fullName: u.fullName || `${u.firstName || ''} ${u.lastName || ''}`.trim() || 'Developer',
+        email: u.primaryEmailAddress?.emailAddress || u.emailAddresses?.[0]?.emailAddress || '',
         imageUrl: u.imageUrl || ghAcc?.imageUrl || '',
-        username: ghAcc?.username || u.username || 'zorox06',
+        username: ghAcc?.username || u.username || 'developer',
       };
     } catch (e) {
       console.warn('Could not fetch user info from clerkClient:', e);
@@ -553,8 +672,8 @@ app.get('/dashboard', async (req: Request, res: Response) => {
   let repos: any[] = [];
   let matches: any[] = [];
   let breakingChanges: any[] = [];
-  let totalBreakingCount = 235;
-  let totalCallSitesCount = 524;
+  let totalBreakingCount = 0;
+  let totalCallSitesCount = 0;
 
   try {
     await db.initializeSchema();
