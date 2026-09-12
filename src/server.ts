@@ -618,7 +618,7 @@ export function startServer(): Promise<any> {
   });
 }
 
-if (process.env.NODE_ENV !== 'test') {
+if (process.env.NODE_ENV !== 'test' && !process.env.VERCEL) {
   startServer();
   // Prevent Node process exit — PGlite WASM can unref event loop handles on Windows
   setInterval(() => {}, 1 << 30);
