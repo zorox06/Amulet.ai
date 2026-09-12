@@ -2157,27 +2157,32 @@ export function renderDashboardPage(props: DashboardPageProps): string {
           </div>
 
           <!-- Private Repositories Access Bar -->
-          <div style="margin-top: 10px; padding: 10px 14px; background: var(--bg-surface-subtle); border: 1px solid var(--border-subtle); border-radius: 12px;">
+          <div style="margin-top: 10px; padding: 12px 14px; background: var(--bg-surface-subtle); border: 1px solid var(--border-subtle); border-radius: 12px;">
             <div style="display: flex; justify-content: space-between; align-items: center;">
-              <button type="button" onclick="togglePatField()" style="background: transparent; border: none; cursor: pointer; color: var(--text-main); font-size: 0.78rem; font-weight: 700; display: flex; align-items: center; gap: 6px; padding: 0;">
-                <span>🔒</span>
+              <button type="button" onclick="togglePatField()" style="background: transparent; border: none; cursor: pointer; color: var(--text-main); font-size: 0.8rem; font-weight: 700; display: flex; align-items: center; gap: 7px; padding: 0;">
+                <span style="font-size: 0.9rem;">🔒</span>
                 <span>Include Private Repositories (GitHub Token)</span>
-                <span id="pat-caret" style="font-size: 0.68rem; color: var(--text-dim); transition: transform 0.2s;">▼</span>
+                <span id="pat-caret" style="font-size: 0.65rem; color: var(--text-dim); display: inline-block;">▼</span>
               </button>
-              <span id="pat-active-badge" style="display: none; font-size: 0.72rem; color: #10b981; font-weight: 700; background: rgba(16, 185, 129, 0.12); padding: 2px 8px; border-radius: 6px;">
+              <span id="pat-active-badge" style="display: none; font-size: 0.72rem; color: #10b981; font-weight: 700; background: rgba(16, 185, 129, 0.12); padding: 3px 9px; border-radius: 9999px; border: 1px solid rgba(16, 185, 129, 0.25);">
                 ✓ Token active
               </span>
             </div>
-            <div id="pat-input-container" style="display: none; margin-top: 10px;">
-              <div style="display: flex; gap: 8px;">
-                <input id="modal-gh-token-input" type="password" placeholder="ghp_... (Personal Access Token with 'repo' scope)" style="flex: 1; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--border-subtle); background: var(--card-inner); color: var(--text-main); font-family: var(--font-mono); font-size: 0.82rem; outline: none;" onkeydown="if(event.key==='Enter'){event.preventDefault();saveAndRefetchWithPat();}">
-                <button type="button" onclick="saveAndRefetchWithPat()" class="btn btn-secondary" style="font-size: 0.78rem; padding: 8px 14px; font-weight: 700; white-space: nowrap;">
+            <div id="pat-input-container" style="display: none; margin-top: 12px;">
+              <div style="display: flex; gap: 8px; align-items: center;">
+                <div style="position: relative; flex: 1; min-width: 0;">
+                  <input id="modal-gh-token-input" type="password" placeholder="ghp_... (Personal Access Token with repo scope)" style="width: 100%; padding: 9px 36px 9px 12px; border-radius: 8px; border: 1px solid var(--border-subtle); background: var(--card-inner); color: var(--text-main); font-family: var(--font-mono); font-size: 0.82rem; outline: none; box-sizing: border-box;" onkeydown="if(event.key==='Enter'){event.preventDefault();saveAndRefetchWithPat();}">
+                  <button type="button" onclick="toggleModalTokenVisibility()" style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); background: transparent; border: none; cursor: pointer; font-size: 0.85rem; padding: 2px 4px; color: var(--text-dim);" title="Show/Hide Token">👁️</button>
+                </div>
+                <button type="button" onclick="saveAndRefetchWithPat()" class="btn btn-secondary" style="font-size: 0.78rem; padding: 9px 16px; font-weight: 700; white-space: nowrap; flex-shrink: 0;">
                   Save & Fetch
                 </button>
               </div>
-              <div style="margin-top: 6px; font-size: 0.71rem; color: var(--text-dim); display: flex; justify-content: space-between; align-items: center;">
-                <span>Requires classic token with <code>repo</code> scope or fine-grained token with repository read permissions.</span>
-                <a href="https://github.com/settings/tokens/new?scopes=repo&description=Amulet.ai" target="_blank" style="color: var(--coral-primary); text-decoration: underline; font-weight: 600;">Generate token ↗</a>
+              <div style="margin-top: 8px; font-size: 0.74rem; color: var(--text-dim); line-height: 1.5;">
+                Requires classic token with <code>repo</code> scope or fine-grained token with read permissions.
+                <a href="https://github.com/settings/tokens/new?scopes=repo&description=Amulet.ai" target="_blank" style="color: var(--coral-primary); font-weight: 700; text-decoration: none; margin-left: 6px; white-space: nowrap; display: inline-block;">
+                  Generate token ↗
+                </a>
               </div>
             </div>
           </div>
@@ -2921,10 +2926,17 @@ export function renderDashboardPage(props: DashboardPageProps): string {
       if (!container) return;
       const isOpen = container.style.display === 'block';
       container.style.display = isOpen ? 'none' : 'block';
-      if (caret) caret.style.transform = isOpen ? 'rotate(0deg)' : 'rotate(180deg)';
+      if (caret) caret.textContent = isOpen ? '▼' : '▲';
       if (!isOpen) {
         const input = document.getElementById('modal-gh-token-input');
         if (input) input.focus();
+      }
+    }
+
+    function toggleModalTokenVisibility() {
+      const input = document.getElementById('modal-gh-token-input');
+      if (input) {
+        input.type = input.type === 'password' ? 'text' : 'password';
       }
     }
 
