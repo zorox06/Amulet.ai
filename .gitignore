@@ -1,0 +1,17 @@
+# Secrets and local runtime state
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Dependencies and generated output
+node_modules/
+dist/
+.pgdata/
+.changelog_cache.json
+
+# Editor and OS files
+.DS_Store
+Thumbs.db
+.vscode/
