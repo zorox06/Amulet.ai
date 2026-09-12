@@ -1417,14 +1417,6 @@ export function renderDashboardPage(props: DashboardPageProps): string {
         <span style="color: var(--coral-primary); font-size: 1.3rem;">❖</span>
         <span>Amulet.ai</span>
       </a>
-      <span style="color: var(--text-dim);">/</span>
-      <span style="font-weight: 700; font-size: 0.92rem; font-family: var(--font-mono);">
-        ${activeRepo ? escapeHtml(activeRepo.repo_full_name) : 'Select Repository'}
-      </span>
-      <div class="status-pill">
-        <span class="pulse-dot"></span>
-        <span>Continuous Sentinel Active</span>
-      </div>
     </div>
 
     <div style="display: flex; align-items: center; gap: 10px;">
