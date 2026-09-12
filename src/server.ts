@@ -603,7 +603,7 @@ app.get('/dashboard', async (req: Request, res: Response) => {
 export function startServer(): Promise<any> {
   return new Promise((resolve) => {
     const server = app.listen(PORT, () => {
-      console.log(`🚀 Amulet.ai Guardian Server listening on http://localhost:${PORT}`);
+      console.log(`🚀 Amulet.ai Server listening on http://localhost:${PORT}`);
       // Deferred schema init — don't block startup
       db.initializeSchema().then(() => {
         console.log('✅ Database schema initialized');

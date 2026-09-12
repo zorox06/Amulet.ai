@@ -1,7 +1,7 @@
 {
-  "name": "breaking-change-guardian",
+  "name": "amulet-ai",
   "version": "1.0.0",
-  "description": "API Breaking-Change Guardian (v1 — Stripe / TypeScript)",
+  "description": "Amulet.ai — Continuous API Breaking-Change Sentinel (Stripe / TypeScript)",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",

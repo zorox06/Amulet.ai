@@ -32,7 +32,7 @@ export class GitHubPrService {
       updated = lines.join('\n');
     }
 
-    await octokit.rest.repos.createOrUpdateFileContents({ owner, repo, path: args.filePath, message: args.title, content: Buffer.from(updated).toString('base64'), branch: args.branch, sha: current.data.sha, committer: { name: 'Breaking Change Guardian', email: 'guardian@users.noreply.github.com' } });
+    await octokit.rest.repos.createOrUpdateFileContents({ owner, repo, path: args.filePath, message: args.title, content: Buffer.from(updated).toString('base64'), branch: args.branch, sha: current.data.sha, committer: { name: 'Amulet.ai', email: 'sentinel@users.noreply.github.com' } });
     const pr = await octokit.rest.pulls.create({ owner, repo, title: args.title, head: args.branch, base: args.base, body: args.body });
     return { url: pr.data.html_url, number: pr.data.number, branch: args.branch, live: true };
   }

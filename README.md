@@ -1,4 +1,6 @@
-# Breaking Change Guardian
+# Amulet.ai
+
+Continuous API breaking-change sentinel and automated migration engine for Stripe and TypeScript.
 
 An on-demand P0 demo of the core loop:
 

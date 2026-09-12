@@ -11,7 +11,7 @@ export function renderLandingPage(props: LandingPageProps): string {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Amulet.ai — API Breaking-Change Guardian (Stripe / TypeScript)</title>
+  <title>Amulet.ai — API Breaking-Change Sentinel (Stripe / TypeScript)</title>
   <meta name="description" content="Amulet continuously monitors Stripe release notes against your TypeScript codebase and proposes verified, drop-in GitHub PR fixes before production breaks.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -1493,7 +1493,7 @@ export function renderLandingPage(props: LandingPageProps): string {
                 </div>
                 <div style="display: flex; justify-content: space-between; align-items: flex-end;">
                   <div>
-                    <div style="font-size: 0.7rem; opacity: 0.85;">Guardian State</div>
+                    <div style="font-size: 0.7rem; opacity: 0.85;">Sentinel State</div>
                     <div style="font-size: 1rem; font-weight: 800;">100% Shielded</div>
                   </div>
                   <a href="/dashboard" class="btn-ghost" style="background: rgba(0,0,0,0.25); color: #fff; font-size: 0.76rem; padding: 6px 14px;">
@@ -1571,7 +1571,7 @@ export function renderLandingPage(props: LandingPageProps): string {
   <section id="comparison" class="comparison-section">
     <div style="text-align: center; margin-bottom: 30px;">
       <h2 class="section-title">
-        Manual Upgrades vs Automated Guardian
+        Manual Upgrades vs Automated Amulet
       </h2>
       <p class="section-sub">
         Why leading payment engineering teams replace manual changelog hunting with continuous protection.
@@ -1596,10 +1596,10 @@ export function renderLandingPage(props: LandingPageProps): string {
         </div>
       </div>
 
-      <!-- Amulet Automated Guardian -->
+      <!-- Amulet Automated Protection -->
       <div class="comparison-card good">
         <div>
-          <span class="comparison-badge good">Amulet Guardian</span>
+          <span class="comparison-badge good">Amulet.ai</span>
           <h3 style="font-size: 1.35rem; font-weight: 800; margin-bottom: 8px;">Automated Continuous Protection</h3>
           <p style="font-size: 0.92rem; color: var(--text-muted); line-height: 1.6;">
             Autonomous monitoring that detects affected payment call sites and delivers verified pull request fixes.
@@ -1839,7 +1839,7 @@ export function renderLandingPage(props: LandingPageProps): string {
       <div>
         <div class="footer-col-title">Product</div>
         <ul class="footer-links">
-          <li><a href="/dashboard">Guardian Workspace</a></li>
+          <li><a href="/dashboard">Amulet Workspace</a></li>
           <li><a href="#migration-preview">Migration Engine</a></li>
           <li><a href="#comparison">Why Amulet</a></li>
           <li><a href="#pricing">Pricing Plans</a></li>
@@ -2102,7 +2102,7 @@ export function renderLandingPage(props: LandingPageProps): string {
 
       // Check if redirected from a protected page
       if (window.location.search.includes('auth=required') || window.location.search.includes('signin=1')) {
-        showToast('🔒 Account login required to view Guardian Workspace.');
+        showToast('🔒 Account login required to view Amulet Workspace.');
         setTimeout(() => openClerkModal('signin'), 600);
       }
     });
